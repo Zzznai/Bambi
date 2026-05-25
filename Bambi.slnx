@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Bambi.API/Bambi.API.csproj" />
+  <Project Path="Bambi.Data/Bambi.Data.csproj" />
+  <Project Path="Bambi.Repositories/Bambi.Repositories.csproj" />
+  <Project Path="Bambi.Services/Bambi.Services.csproj" />
+</Solution>

@@ -1,0 +1,1936 @@
+openapi: 3.0.0
+info:
+  title: Bambi - Second-Hand Clothing Marketplace API
+  description: |
+    Complete REST API for Bambi second-hand clothing marketplace platform.
+    Includes user authentication, listings management, categories, purchases, and admin features.
+
+    ### Enum serialization
+    All enums (PurchaseStatus, UserRole, ItemGender) are serialised as **strings by name** in responses,
+    and accept **both string names and integer values** in requests. e.g. either `"status": "Confirmed"`
+    or `"status": 1` is valid.
+
+    ### Validation
+    Input is validated by **FluentValidation** before reaching the controller. Validation failures return
+    `400 Bad Request` with an RFC 7807 ProblemDetails body, including per-field error messages under
+    the `errors` extension.
+  version: 1.1.0
+  contact:
+    name: Bambi Team
+    url: https://bambi.local
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:5138
+    description: Development Server
+  - url: https://api.bambi.local
+    description: Production Server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer token for authenticated endpoints
+
+  schemas:
+    # ==================== Auth Schemas ====================
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+        - phoneNumber
+        - city
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: Unique username for the account
+          example: "john_doe"
+        email:
+          type: string
+          format: email
+          maxLength: 150
+          description: Valid email address
+          example: "john@example.com"
+        password:
+          type: string
+          minLength: 6
+          maxLength: 256
+          description: Strong password (will be hashed with BCrypt)
+          example: "SecurePass123!"
+        phoneNumber:
+          type: string
+          maxLength: 20
+          nullable: true
+          description: Optional phone number
+          example: "+359888123456"
+        city:
+          type: string
+          maxLength: 100
+          description: User's city location
+          example: "Sofia"
+
+    LoginRequest:
+      type: object
+      required:
+        - usernameOrEmail
+        - password
+      properties:
+        usernameOrEmail:
+          type: string
+          description: Username or email address
+          example: "john_doe"
+        password:
+          type: string
+          format: password
+          description: Account password
+          example: "SecurePass123!"
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT Bearer token for authenticated requests
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        expiresAt:
+          type: string
+          format: date-time
+          description: Token expiration timestamp
+          example: "2026-05-24T12:30:00Z"
+        userId:
+          type: integer
+          description: Authenticated user ID
+          example: 1
+        username:
+          type: string
+          description: Username of authenticated user
+          example: "john_doe"
+        email:
+          type: string
+          format: email
+          description: Email of authenticated user
+          example: "john@example.com"
+        role:
+          type: string
+          enum: [user, admin]
+          description: User role/permission level (lowercase)
+          example: "user"
+        city:
+          type: string
+          nullable: true
+          description: User's city
+          example: "Sofia"
+        profilePicUrl:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
+          description: URL to user's profile picture (Cloudinary)
+          example: "https://res.cloudinary.com/bambi/image/upload/v1234567890/profile_pic.jpg"
+
+    # ==================== User Schemas ====================
+    UserDto:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: User unique identifier
+          example: 1
+        username:
+          type: string
+          maxLength: 50
+          description: User's username
+          example: "john_doe"
+        email:
+          type: string
+          format: email
+          maxLength: 150
+          description: User's email address
+          example: "john@example.com"
+        phoneNumber:
+          type: string
+          maxLength: 20
+          nullable: true
+          description: User's phone number
+          example: "+359888123456"
+        city:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: User's city
+          example: "Sofia"
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: User-supplied bio / about-me text
+          example: "Vintage hunter from Sofia. Ships within 48h."
+        profilePicUrl:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
+          description: URL to profile picture (Cloudinary)
+          example: "https://res.cloudinary.com/bambi/image/upload/v1234567890/profile_pic.jpg"
+        role:
+          type: string
+          enum: [user, admin]
+          description: User's role in the system (lowercase)
+          example: "user"
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+          example: "2026-05-24T10:00:00Z"
+
+    UpdateRoleDto:
+      type: object
+      required:
+        - role
+      properties:
+        role:
+          type: string
+          enum: [User, Admin, user, admin]
+          description: |
+            New role to assign to user. Accepts either casing — backend
+            parses case-insensitively and stores as the enum value.
+          example: "admin"
+
+    UpdateProfileDto:
+      type: object
+      description: Partial-update DTO for the current user's own profile. All fields optional.
+      properties:
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: New bio
+          example: "Updated bio"
+        city:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: New city
+          example: "Plovdiv"
+        phoneNumber:
+          type: string
+          maxLength: 20
+          nullable: true
+          description: New phone number
+          example: "+359888000111"
+        email:
+          type: string
+          format: email
+          maxLength: 150
+          nullable: true
+          description: New email address
+          example: "new@example.com"
+
+    # ==================== Category Schemas ====================
+    CategoryDto:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Category unique identifier
+          example: 1
+        name:
+          type: string
+          maxLength: 80
+          description: Category name (required, unique)
+          example: "Winter Coats"
+        description:
+          type: string
+          maxLength: 300
+          nullable: true
+          description: Category description
+          example: "Warm winter coats and jackets"
+        gender:
+          type: string
+          maxLength: 20
+          nullable: true
+          enum: [All, Men, Women, Unisex, Kids]
+          description: |
+            Target gender for this category. The backend stores `null` for "All" (no gender filter)
+            and one of the `ItemGender` enum values otherwise. Responses always return one of:
+            `All`, `Men`, `Women`, `Unisex`, or `Kids`.
+          example: "Women"
+        sortOrder:
+          type: integer
+          description: Display order in UI
+          example: 1
+
+    CreateCategoryDto:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Unique category name
+          example: "Summer Dresses"
+        description:
+          type: string
+          maxLength: 300
+          nullable: true
+          description: Category description
+          example: "Light and casual summer dresses"
+        gender:
+          type: string
+          maxLength: 20
+          nullable: true
+          enum: [All, Men, Women, Unisex, Kids]
+          description: |
+            Target gender. Pass `All` (or omit) to leave the category unrestricted.
+          example: "Women"
+        sortOrder:
+          type: integer
+          nullable: true
+          description: Display order
+          example: 5
+
+    UpdateCategoryDto:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Updated category name
+          example: "Summer Dresses"
+        description:
+          type: string
+          maxLength: 300
+          nullable: true
+          description: Updated description
+          example: "Updated description"
+        gender:
+          type: string
+          maxLength: 20
+          nullable: true
+          enum: [All, Men, Women, Unisex, Kids]
+          description: Updated target gender
+          example: "Unisex"
+        sortOrder:
+          type: integer
+          nullable: true
+          description: Updated display order
+          example: 3
+
+    # ==================== Listing Schemas ====================
+    ListingDto:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Listing unique identifier
+          example: 42
+        title:
+          type: string
+          maxLength: 100
+          description: Listing title
+          example: "Red Winter Coat"
+        description:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: Detailed listing description
+          example: "Perfect condition winter coat, worn only twice"
+        price:
+          type: number
+          format: decimal
+          description: Listing price in EUR
+          example: 45.99
+        size:
+          type: string
+          maxLength: 10
+          description: Clothing size
+          example: "M"
+        condition:
+          oneOf:
+            - type: integer
+              enum: [0, 1, 2, 3, 4, 5]
+            - type: string
+              enum: [Poor, Fair, Good, VeryGood, Excellent, LikeNew]
+          description: |
+            Condition rating (ConditionLevel enum). Accepts integers 0–5 or string
+            names. Responses ship as integers for backward compatibility with the
+            frontend's star widget.
+            0=Poor · 1=Fair · 2=Good · 3=VeryGood · 4=Excellent · 5=LikeNew
+          example: 4
+        isAvailable:
+          type: boolean
+          description: Whether item is available for purchase
+          example: true
+        categoryId:
+          type: integer
+          description: Category ID for this listing
+          example: 3
+        categoryName:
+          type: string
+          nullable: true
+          description: Convenience — the related category's name
+          example: "Winter Coats"
+        sellerId:
+          type: integer
+          description: User ID of the seller
+          example: 1
+        sellerUsername:
+          type: string
+          nullable: true
+          description: Convenience — the seller's username
+          example: "lia.thrift"
+        sellerCity:
+          type: string
+          nullable: true
+          description: Convenience — the seller's city
+          example: "Lisbon"
+        sellerProfilePicUrl:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
+          description: Seller's profile picture URL (Cloudinary)
+          example: "https://res.cloudinary.com/bambi/image/upload/v1234567890/seller_pic.jpg"
+        images:
+          type: array
+          description: Listing images (Cloudinary). Primary image is sorted first.
+          items:
+            $ref: '#/components/schemas/ListingImageDto'
+        createdAt:
+          type: string
+          format: date-time
+          description: When listing was created
+          example: "2026-05-24T10:00:00Z"
+
+    CreateListingDto:
+      type: object
+      required:
+        - title
+        - price
+        - size
+        - condition
+        - categoryId
+      properties:
+        title:
+          type: string
+          minLength: 5
+          maxLength: 100
+          description: Listing title
+          example: "Vintage Leather Jacket"
+        description:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: Item description
+          example: "Authentic leather jacket from the 90s"
+        price:
+          type: number
+          format: decimal
+          minimum: 0.01
+          description: Price in EUR
+          example: 89.99
+        size:
+          type: string
+          minLength: 1
+          maxLength: 10
+          description: Clothing size (XS, S, M, L, XL, etc.)
+          example: "L"
+        condition:
+          oneOf:
+            - type: integer
+              enum: [0, 1, 2, 3, 4, 5]
+            - type: string
+              enum: [Poor, Fair, Good, VeryGood, Excellent, LikeNew]
+          description: Condition rating (0=Poor … 5=LikeNew). Accepts int or name.
+          example: 3
+        categoryId:
+          type: integer
+          description: Category ID
+          example: 5
+
+    UpdateListingDto:
+      type: object
+      required:
+        - title
+        - price
+        - size
+        - condition
+        - categoryId
+      properties:
+        title:
+          type: string
+          minLength: 5
+          maxLength: 100
+          description: Updated title
+          example: "Vintage Leather Jacket - Updated"
+        description:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: Updated description
+          example: "Updated description"
+        price:
+          type: number
+          format: decimal
+          minimum: 0.01
+          description: Updated price
+          example: 79.99
+        size:
+          type: string
+          minLength: 1
+          maxLength: 10
+          description: Updated size
+          example: "M"
+        condition:
+          oneOf:
+            - type: integer
+              enum: [0, 1, 2, 3, 4, 5]
+            - type: string
+              enum: [Poor, Fair, Good, VeryGood, Excellent, LikeNew]
+          description: Updated condition (int or name)
+          example: 4
+        categoryId:
+          type: integer
+          description: Updated category
+          example: 3
+        isAvailable:
+          type: boolean
+          nullable: true
+          description: Updated availability
+          example: false
+
+    # ==================== Listing Image Schemas ====================
+    ListingImageDto:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Image unique identifier
+          example: 101
+        imageUrl:
+          type: string
+          format: uri
+          maxLength: 500
+          description: URL to the image
+          example: "https://res.cloudinary.com/bambi/image/upload/v1234567890/listing_img.jpg"
+        publicId:
+          type: string
+          maxLength: 200
+          nullable: true
+          description: Cloudinary public ID for deletion
+          example: "bambi/listing_123_img_1"
+        isPrimary:
+          type: boolean
+          description: Whether this is the primary/thumbnail image
+          example: true
+        sortOrder:
+          type: integer
+          description: Display order of images
+          example: 0
+        uploadedAt:
+          type: string
+          format: date-time
+          description: Upload timestamp
+          example: "2026-05-24T10:15:00Z"
+
+    ListingImageUploadResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Image ID
+          example: 101
+        imageUrl:
+          type: string
+          format: uri
+          description: Image URL
+          example: "https://res.cloudinary.com/bambi/image/upload/v1234567890/listing_img.jpg"
+        publicId:
+          type: string
+          description: Cloudinary public ID
+          example: "bambi/listing_123_img_1"
+
+    # ==================== Purchase Schemas ====================
+    PurchaseStatus:
+      oneOf:
+        - type: string
+          enum: [Pending, Confirmed, Shipped, Delivered]
+        - type: integer
+          enum: [0, 1, 2, 3]
+      description: |
+        Purchase status. Accepted as either the string name (preferred) or the
+        underlying integer (0=Pending · 1=Confirmed · 2=Shipped · 3=Delivered).
+        Responses are serialised as **strings** (via `JsonStringEnumConverter`).
+      example: "Confirmed"
+
+    PurchaseDto:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Purchase unique identifier
+          example: 10
+        listingId:
+          type: integer
+          description: ID of purchased listing
+          example: 42
+        listingTitle:
+          type: string
+          nullable: true
+          description: Convenience — the purchased listing's title
+          example: "Vintage Levi's 501"
+        listingImageUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Convenience — URL of the listing's primary image (first if no primary set)
+          example: "https://res.cloudinary.com/bambi/image/upload/v1234567890/listing.jpg"
+        buyerId:
+          type: integer
+          description: ID of the buyer
+          example: 2
+        buyerUsername:
+          type: string
+          nullable: true
+          description: Convenience — the buyer's username
+          example: "ko.archive"
+        buyerCity:
+          type: string
+          nullable: true
+          description: Convenience — the buyer's city (used on the seller's Orders view)
+          example: "Seoul"
+        buyerProfilePicUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Convenience — the buyer's profile picture URL
+          example: "https://res.cloudinary.com/bambi/image/upload/v1234567890/buyer_pic.jpg"
+        sellerId:
+          type: integer
+          description: ID of the seller (denormalised from the listing for fast filtering)
+          example: 1
+        sellerUsername:
+          type: string
+          nullable: true
+          description: Convenience — the seller's username
+          example: "lia.thrift"
+        pricePaid:
+          type: number
+          format: decimal
+          description: Price paid at time of purchase (snapshot of listing price)
+          example: 45.99
+        deliveryAddress:
+          type: string
+          maxLength: 300
+          nullable: true
+          description: Delivery address
+          example: "123 Main St, Sofia, Bulgaria"
+        status:
+          $ref: '#/components/schemas/PurchaseStatus'
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: Additional notes
+          example: "Please leave with neighbor if not home"
+        purchasedAt:
+          type: string
+          format: date-time
+          description: Purchase timestamp
+          example: "2026-05-24T11:00:00Z"
+
+    CreatePurchaseDto:
+      type: object
+      required:
+        - listingId
+      properties:
+        listingId:
+          type: integer
+          description: ID of listing to purchase
+          example: 42
+        deliveryAddress:
+          type: string
+          maxLength: 300
+          nullable: true
+          description: Delivery address
+          example: "123 Main St, Sofia, Bulgaria"
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: Special delivery notes
+          example: "Ring doorbell twice"
+
+    UpdatePurchaseStatusDto:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/PurchaseStatus'
+
+    # ==================== Pagination Schemas ====================
+    PagedResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          description: List of items
+          items: {}
+        totalCount:
+          type: integer
+          description: Total number of items
+          example: 150
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        pageSize:
+          type: integer
+          description: Items per page
+          example: 12
+        totalPages:
+          type: integer
+          description: Total number of pages
+          example: 13
+
+    # ==================== Error Schemas ====================
+    # All error responses follow RFC 7807 ProblemDetails (application/problem+json),
+    # produced by the global exception middleware. Validation failures raised by
+    # FluentValidation include per-field messages under `errors`.
+    ErrorResponse:
+      type: object
+      description: RFC 7807 ProblemDetails payload returned for all non-2xx responses.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Reference URI for the error type
+          example: "https://httpstatuses.com/400"
+        title:
+          type: string
+          description: Short human-readable summary
+          example: "Validation Failed"
+        status:
+          type: integer
+          description: HTTP status code
+          example: 400
+        detail:
+          type: string
+          description: Detailed error message (for AppException-derived errors)
+          example: "One or more validation errors occurred."
+        instance:
+          type: string
+          description: Request path
+          example: "/api/auth/register"
+        errors:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: |
+            Field-level validation errors keyed by property name. Present only on
+            FluentValidation failures (HTTP 400).
+          example:
+            Username: ["Username is required."]
+            Email: ["Email is not a valid address."]
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==================== AUTHENTICATION ENDPOINTS ====================
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user account
+      description: |
+        Creates a new user account with validation of all required fields.
+        Password is hashed with BCrypt before storage.
+        
+        Validations:
+        - Username: required, 3-50 chars, unique
+        - Email: required, valid format, unique, max 150 chars
+        - Password: required, min 6 chars
+        - Phone: optional, max 20 chars
+        - City: required, max 100 chars
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: User registered successfully, JWT token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Validation failed or username/email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate user
+      description: |
+        Authenticates a user with username/email and password.
+        Returns JWT token valid for 7 days.
+        
+        Validations:
+        - UsernameOrEmail: required, max 150 chars
+        - Password: required, verified against BCrypt hash
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful, JWT token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - invalid username or password
+        '500':
+          description: Internal server error
+
+  # ==================== CATEGORY ENDPOINTS ====================
+  /api/categories:
+    get:
+      tags:
+        - Categories
+      summary: List all categories
+      description: |
+        Retrieves paginated list of all product categories.
+        Results can be filtered and sorted.
+        Public endpoint - no authentication required.
+      operationId: listCategories
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number (1-indexed)
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+          description: Items per page
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search term for category name
+      responses:
+        '200':
+          description: Categories retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PagedResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CategoryDto'
+        '400':
+          description: Invalid pagination parameters
+        '500':
+          description: Internal server error
+
+    post:
+      tags:
+        - Categories
+      summary: Create new category
+      description: |
+        Creates a new product category (admin only).
+        
+        Validations:
+        - Name: required, 1-80 chars, unique
+        - Description: optional, max 300 chars
+        - Gender: optional, enum [men, women, unisex]
+        - SortOrder: optional, integer
+      operationId: createCategory
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryDto'
+      responses:
+        '201':
+          description: Category created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryDto'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - admin role required
+        '500':
+          description: Internal server error
+
+  /api/categories/{id}:
+    get:
+      tags:
+        - Categories
+      summary: Get category by ID
+      description: |
+        Retrieves a specific category by its ID.
+        Public endpoint - no authentication required.
+      operationId: getCategoryById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Category ID
+      responses:
+        '200':
+          description: Category found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryDto'
+        '404':
+          description: Category not found
+        '500':
+          description: Internal server error
+
+    put:
+      tags:
+        - Categories
+      summary: Update category
+      description: |
+        Updates an existing category (admin only).
+        
+        Validations:
+        - Name: required, 1-80 chars, unique
+        - Description: optional, max 300 chars
+        - Gender: optional, enum [men, women, unisex]
+        - SortOrder: optional, integer
+      operationId: updateCategory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Category ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryDto'
+      responses:
+        '200':
+          description: Category updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryDto'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - admin role required
+        '404':
+          description: Category not found
+        '500':
+          description: Internal server error
+
+    delete:
+      tags:
+        - Categories
+      summary: Delete category
+      description: |
+        Deletes a category (admin only).
+        Returns 204 No Content on success.
+      operationId: deleteCategory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Category ID
+      responses:
+        '204':
+          description: Category deleted successfully
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - admin role required
+        '404':
+          description: Category not found
+        '500':
+          description: Internal server error
+
+  # ==================== LISTING ENDPOINTS ====================
+  /api/listings:
+    get:
+      tags:
+        - Listings
+      summary: Search and list items
+      description: |
+        Retrieves listings with advanced filtering and pagination.
+        All parameters are optional for flexible searching.
+        Public endpoint - no authentication required.
+      operationId: listListings
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search in title and description
+        - name: categoryId
+          in: query
+          schema:
+            type: integer
+          description: Filter by category ID (multiple allowed)
+        - name: minPrice
+          in: query
+          schema:
+            type: number
+          description: Minimum price in EUR
+        - name: maxPrice
+          in: query
+          schema:
+            type: number
+          description: Maximum price in EUR
+        - name: size
+          in: query
+          schema:
+            type: string
+          description: Clothing size filter (multiple allowed)
+        - name: condition
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 5
+          description: Minimum condition rating (0-5)
+        - name: isAvailable
+          in: query
+          schema:
+            type: boolean
+          description: Filter by availability
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, -createdAt, price, -price, condition, -condition]
+          description: Sort field and direction (- for descending)
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 12
+            minimum: 1
+            maximum: 100
+          description: Items per page
+      responses:
+        '200':
+          description: Listings retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PagedResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ListingDto'
+        '400':
+          description: Invalid parameters
+        '500':
+          description: Internal server error
+
+    post:
+      tags:
+        - Listings
+      summary: Create new listing
+      description: |
+        Creates a new item listing (authenticated sellers only).
+        
+        Validations:
+        - Title: required, 5-100 chars
+        - Price: required, min 0.01 EUR
+        - Size: required, 1-10 chars
+        - Condition: required, enum 0-5
+        - CategoryId: required, must exist
+        - Description: optional, max 1000 chars
+      operationId: createListing
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListingDto'
+      responses:
+        '201':
+          description: Listing created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingDto'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+        '500':
+          description: Internal server error
+
+  /api/listings/my:
+    get:
+      tags:
+        - Listings
+      summary: List the caller's own listings
+      description: |
+        Returns the authenticated user's listings (any availability state).
+        Used by the **My listings** page.
+      operationId: listMyListings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Listings retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PagedResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ListingDto'
+        '401':
+          description: Unauthorized — authentication required
+
+  /api/listings/{id}:
+    get:
+      tags:
+        - Listings
+      summary: Get listing by ID
+      description: |
+        Retrieves a specific listing with all details and images.
+        Public endpoint - no authentication required.
+      operationId: getListing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Listing ID
+      responses:
+        '200':
+          description: Listing found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingDto'
+        '404':
+          description: Listing not found
+        '500':
+          description: Internal server error
+
+    put:
+      tags:
+        - Listings
+      summary: Update listing
+      description: |
+        Updates an existing listing (owner only).
+        Cannot update seller information.
+      operationId: updateListing
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Listing ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListingDto'
+      responses:
+        '200':
+          description: Listing updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingDto'
+        '400':
+          description: Validation failed
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - can only update own listings
+        '404':
+          description: Listing not found
+        '500':
+          description: Internal server error
+
+    delete:
+      tags:
+        - Listings
+      summary: Delete listing
+      description: |
+        Deletes a listing and associated images (owner only).
+        Images are also deleted from Cloudinary.
+      operationId: deleteListing
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Listing ID
+      responses:
+        '204':
+          description: Listing deleted successfully
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - can only delete own listings
+        '404':
+          description: Listing not found
+        '500':
+          description: Internal server error
+
+  # ==================== LISTING IMAGE ENDPOINTS ====================
+  /api/listings/{id}/images:
+    post:
+      tags:
+        - Listing Images
+      summary: Upload listing image
+      description: |
+        Uploads an image for a listing to Cloudinary.
+        Supports multiple images per listing.
+        
+        Validations:
+        - File: required, must be image (jpg, png, webp)
+        - ListingId: required, must exist and belong to user
+        - Max file size: 10MB
+      operationId: uploadListingImage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID of listing to attach image to
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image file
+      responses:
+        '201':
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingImageUploadResponse'
+        '400':
+          description: Validation failed or invalid file
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - can only upload to own listings
+        '404':
+          description: Listing not found
+        '500':
+          description: Internal server error
+
+  /api/listing-images/{id}/primary:
+    put:
+      tags:
+        - Listing Images
+      summary: Set image as primary
+      description: |
+        Sets an image as the primary/thumbnail image for a listing.
+        Only listing owner can change primary image.
+      operationId: setImagePrimary
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Image ID to set as primary
+      responses:
+        '200':
+          description: Primary image set successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingImageDto'
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - can only set primary on own listings
+        '404':
+          description: Image not found
+        '500':
+          description: Internal server error
+
+  /api/listing-images/{id}:
+    delete:
+      tags:
+        - Listing Images
+      summary: Delete listing image
+      description: |
+        Deletes an image and removes it from Cloudinary.
+        Only listing owner can delete.
+      operationId: deleteListingImage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Image ID
+      responses:
+        '204':
+          description: Image deleted successfully
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - can only delete from own listings
+        '404':
+          description: Image not found
+        '500':
+          description: Internal server error
+
+  # ==================== USER ENDPOINTS ====================
+  /api/users:
+    get:
+      tags:
+        - Users
+      summary: List all users
+      description: |
+        Retrieves paginated list of users (admin only).
+        Used for user management in admin panel.
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+          description: Items per page
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by username or email
+      responses:
+        '200':
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PagedResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/UserDto'
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - admin role required
+        '500':
+          description: Internal server error
+
+  /api/users/{id}:
+    get:
+      tags:
+        - Users
+      summary: Get user by ID
+      description: |
+        Retrieves user profile information.
+        Returns public info for other users, full info for self (admin/user).
+      operationId: getUserById
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: User ID
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDto'
+        '404':
+          description: User not found
+        '500':
+          description: Internal server error
+
+    put:
+      tags:
+        - Users
+      summary: Update user profile
+      description: |
+        Updates a user's profile (bio, city, phone, email).
+        Callable by the user themself **or** an admin. All fields are optional —
+        only the keys present in the payload get applied.
+      operationId: updateUserProfile
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: User ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileDto'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDto'
+        '401':
+          description: Unauthorized — authentication required
+        '403':
+          description: Forbidden — only the user themself or an admin may update
+        '404':
+          description: User not found
+
+    delete:
+      tags:
+        - Users
+      summary: Delete user account
+      description: |
+        Deletes a user account and all associated data (admin only).
+        Also deletes user's listings and purchase history.
+      operationId: deleteUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: User ID
+      responses:
+        '204':
+          description: User deleted successfully
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - admin role required
+        '404':
+          description: User not found
+        '500':
+          description: Internal server error
+
+  /api/users/{id}/role:
+    put:
+      tags:
+        - Users
+      summary: Update user role
+      description: |
+        Changes user's role (admin only).
+        Can promote/demote between user, seller, and admin roles.
+      operationId: updateUserRole
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: User ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleDto'
+      responses:
+        '200':
+          description: Role updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDto'
+        '400':
+          description: Validation failed
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - admin role required
+        '404':
+          description: User not found
+        '500':
+          description: Internal server error
+
+  /api/users/me/profile-pic:
+    post:
+      tags:
+        - Users
+      summary: Upload / replace the caller's profile picture
+      description: |
+        Uploads an image to Cloudinary and stores its URL on the current user.
+        If the user already had a profile picture, the old one is deleted from
+        Cloudinary before the new one is saved.
+      operationId: uploadProfileImage
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image file (jpg, png, webp). Max 10 MB.
+      responses:
+        '200':
+          description: Profile picture replaced. Returns the updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDto'
+        '400':
+          description: Missing or invalid file
+        '401':
+          description: Unauthorized — authentication required
+
+  /api/users/me:
+    delete:
+      tags:
+        - Users
+      summary: Delete own account
+      description: |
+        Deletes the current user's account and all associated data.
+        
+        Validations:
+        - User cannot have active purchases as buyer (pending, confirmed, or shipped)
+        - User cannot have active sales (pending, confirmed, or shipped purchases)
+        - Deletes all user's listings and images
+        - Deletes all user's purchase records
+        
+        Side Effects:
+        - Permanently removes account
+        - All listings become unavailable
+        - All images deleted from storage
+        - Cannot be undone
+      operationId: deleteMyAccount
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Account deleted successfully
+        '401':
+          description: Unauthorized - authentication required
+        '409':
+          description: Conflict - cannot delete with active purchases or sales
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+
+  # ==================== PURCHASE ENDPOINTS ====================
+  /api/purchases/sales:
+    get:
+      tags:
+        - Purchases
+      summary: Get sales of the caller's listings (Orders view for sellers)
+      description: |
+        Returns purchases where the listing's seller is the authenticated user.
+        Used by the **Orders** page so sellers can see who bought their items
+        and move each order through the lifecycle.
+
+        Pair with `PUT /api/purchases/{id}/status` to advance the status.
+      operationId: listMySales
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/PurchaseStatus'
+          description: Filter by status
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Only sales placed on/after this date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Only sales placed on/before this date
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [purchasedAt, price, status]
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Sales retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PagedResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PurchaseDto'
+        '401':
+          description: Unauthorized — authentication required
+
+  /api/purchases/my:
+    get:
+      tags:
+        - Purchases
+      summary: Get current user's purchases
+      description: |
+        Retrieves paginated list of authenticated user's purchases.
+        Shows items user has bought.
+      operationId: listMyPurchases
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+          description: Items per page
+      responses:
+        '200':
+          description: Purchases retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PagedResponse'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PurchaseDto'
+        '401':
+          description: Unauthorized - authentication required
+        '500':
+          description: Internal server error
+
+  /api/purchases:
+    post:
+      tags:
+        - Purchases
+      summary: Create purchase
+      description: |
+        Creates a new purchase for a listing (authenticated users only).
+        Marks listing as no longer available.
+        
+        Validations:
+        - ListingId: required, must exist and be available
+        - Cannot purchase own listing
+        - DeliveryAddress: optional, max 300 chars
+        - Note: optional, max 500 chars
+      operationId: createPurchase
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePurchaseDto'
+      responses:
+        '201':
+          description: Purchase created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseDto'
+        '400':
+          description: Validation failed or listing not available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - cannot purchase own listing
+        '404':
+          description: Listing not found
+        '500':
+          description: Internal server error
+
+  /api/purchases/{id}:
+    get:
+      tags:
+        - Purchases
+      summary: Get purchase details
+      description: |
+        Retrieves a specific purchase (buyer or admin only).
+      operationId: getPurchase
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Purchase ID
+      responses:
+        '200':
+          description: Purchase found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseDto'
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - can only view own purchases
+        '404':
+          description: Purchase not found
+        '500':
+          description: Internal server error
+
+    put:
+      tags:
+        - Purchases
+      summary: Update purchase status
+      description: |
+        Updates purchase status (seller/admin only).
+        Can transition: Pending → Confirmed → Shipped → Delivered
+      operationId: updatePurchaseStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Purchase ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePurchaseStatusDto'
+      responses:
+        '200':
+          description: Status updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseDto'
+        '400':
+          description: Validation failed
+        '401':
+          description: Unauthorized - authentication required
+        '403':
+          description: Forbidden - seller/admin only
+        '404':
+          description: Purchase not found
+        '500':
+          description: Internal server error
+
+tags:
+  - name: Authentication
+    description: User registration and login endpoints
+  - name: Categories
+    description: Product category management
+  - name: Listings
+    description: Item listings and search
+  - name: Listing Images
+    description: Image upload and management
+  - name: Users
+    description: User management and profiles
+  - name: Purchases
+    description: Purchase transactions and status
