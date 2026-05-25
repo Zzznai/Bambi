@@ -403,3 +403,6 @@ pnpm-debug.log*
 # ===== OS =====
 .DS_Store
 Thumbs.db
+
+# ===== Old static prototype (kept locally for reference) =====
+Bambi clothing/
